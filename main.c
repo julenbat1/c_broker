@@ -4,6 +4,7 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <sys/wait.h>
+#include "pipe_shared_struct.h"
 
 #define DEFAULT_LIST_SIZE 30
 
@@ -38,6 +39,7 @@ typedef struct channelList{
 	int size;
 	int max;
 	t_channel **list;
+	
 
 	void (*add)(struct channelList*, char *);
 	void (*remove) (struct channelList*, char *);
@@ -72,17 +74,34 @@ void replaceStd(int, int);
 
 //tests
 void test(channelList *);
+void sendTestStruct(int);
 
 int main(int argc, char *argv[])
 {
 	channelList *list = init_channelList();
-	test(list);
+	t_channel *channel  = init_channel("firstChannel");
+	t_process *p = channel->process;
+
+//	p->write(p, "hola");
+
+//	char *msg;
+//	msg = p->read(p);
+//	printf("el mensaje devuelto pro el proceso es: %s, on pointer %p \n", msg, &msg);
+
+	p->write(p, "struct");
+	testStruct t;
+	t.x = 1;
+	t.y = 2;
+	memcpy(t.name, "Julen", 5);
+
+	write(p->wpipe, &t, sizeof(testStruct));
 }
 
 t_channel *init_channel(char *name)
 {
 	t_channel *ch = (t_channel *) malloc(sizeof(t_channel));
 	ch->name = name;
+	ch->process = init_process();
 
 	return ch;
 
@@ -157,7 +176,6 @@ void resizeChannelList(channelList *list)
 	memcpy(list->list, ch, sizeof(list->list));
 	free(list->list);
 	list->list = ch;
-	list->max = newSize;
 }
 
 t_channel *getChannel(channelList *list, char *name)
@@ -197,7 +215,9 @@ t_process* init_process()
 	{
 		replaceStd(1, readpipe[1]);
 		replaceStd(0, writepipe[0]);
-		execlp("", "", (void *) 0);
+		close(readpipe[0]);
+		close(writepipe[1]);
+		execlp("./subprocess", "subprocess", (void *) 0);
 	}
 
 
@@ -207,25 +227,32 @@ t_process* init_process()
 void writeProcess(t_process *self, char *word)
 {
 	int fd = self->wpipe;
-	write(fd, word, strlen(word));
+	int size = strlen(word);
 
+	write(fd, &size, sizeof(int));
+	write(fd, word, size);
 }
 
 
 char*  readProcess(t_process *self)
 {
-	int fd = self->rpipe, byteSize;
+	int fd = self->rpipe;
+	int byteSize;
 	char *str;
+
 	if(read(fd, &byteSize, sizeof(int)) > 0)
 	{
+		printf("bytes to read: %d", byteSize);
 		str = (char *) malloc(sizeof(char) * byteSize);
-		if(read(fd, str, byteSize) > 0)
+		int r;
+		if((r = read(fd, str, byteSize)) > 0)
 		{
+			printf("%d bytes to read, word: %s, bytes read from word %d \n", byteSize, str, r);
 			return str;
 		}
 	}
 
-	return "read did not work";
+	return "read did not work\n";
 
 }
 
@@ -257,12 +284,19 @@ void replaceStd(int currentFd, int newFd)
 
 void test(channelList *list)
 {
-	char **names = {"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "ñ"}
+	char *names[]  = {"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "ñ"};
+	int size = list->size;
 	for(int i= 0; names[i] != (void *) 0; i++)
 	{
-		list->add(names[i]);
-
+		list->add(list, names[i]);
+		char *name = list->list[i]->name;
+		printf("%s \t", name);
+		if(list->size > size)
+		{
+			 printf("\n channel vector size has changed from %d to %d, on %d", size, list->max, list->size);
+		}
 	}
 
 
 }
+
